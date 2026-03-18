@@ -18,7 +18,6 @@ class SplashScreenViewModel: ViewModel() {
             delay(3000L)
             _isLoading.value = false
             _isLoading.collect{
-
             }
         }
     }
