@@ -11,14 +11,23 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.Button
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -39,6 +48,7 @@ fun CameraScreen(
     ) == PackageManager.PERMISSION_GRANTED
     
     val hasCameraPermission by cameraViewModel.isPermissionGranted.collectAsState()
+    val scannedQrCode by cameraViewModel.scannedQrCode.collectAsState()
 
     // Setup permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -58,7 +68,40 @@ fun CameraScreen(
     }
 
     if (hasCameraPermission) {
-        CameraPreview()
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Camera Preview takes up 3/4 of the screen (weight 0.75f)
+            Box(modifier = Modifier.weight(0.75f)) {
+                CameraPreview(modifier = Modifier.fillMaxSize())
+            }
+
+            // Bottom Information Area takes up 1/4 of the screen (weight 0.25f)
+            Surface(
+                modifier = Modifier
+                    .weight(0.25f)
+                    .fillMaxWidth(),
+                elevation = 8.dp,
+                color = MaterialTheme.colors.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Scan Result",
+                        style = MaterialTheme.typography.h6,
+                        color = MaterialTheme.colors.primary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = scannedQrCode ?: "Point your camera at a QR code",
+                        style = MaterialTheme.typography.body1,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
     } else {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
@@ -69,7 +112,7 @@ fun CameraScreen(
 }
 
 @Composable
-fun CameraPreview() {
+fun CameraPreview(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
@@ -96,7 +139,7 @@ fun CameraPreview() {
 
     AndroidView(
         factory = { previewView },
-        modifier = Modifier.fillMaxSize()
+        modifier = modifier
     )
 }
 
