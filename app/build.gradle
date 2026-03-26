@@ -1,16 +1,17 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin'
 }
 
 android {
     namespace 'com.example.qrscannerjetpackcompose'
-    compileSdk 33
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.example.qrscannerjetpackcompose"
         minSdk 24
-        targetSdk 33
+        targetSdk 34
         versionCode 1
         versionName "1.0"
 
@@ -35,6 +36,7 @@ android {
     }
     buildFeatures {
         compose true
+        buildConfig true
     }
     composeOptions {
         kotlinCompilerExtensionVersion '1.4.1' // for kotlin 1.8.0
@@ -44,6 +46,16 @@ android {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
         }
     }
+}
+
+secrets {
+    // Optionally specify a different file name containing your secrets.
+    // The plugin defaults to "local.properties"
+    propertiesFileName = "secrets.properties"
+
+    // A properties file containing default secret values. This file can be
+    // checked in version control.
+    defaultPropertiesFileName = "local.defaults.properties"
 }
 
 dependencies {
@@ -72,8 +84,11 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.6.1"
 
     // CameraX
-    def camerax_version = "1.2.3"
+    def camerax_version = "1.4.0"
     implementation "androidx.camera:camera-camera2:$camerax_version"
     implementation "androidx.camera:camera-lifecycle:$camerax_version"
     implementation "androidx.camera:camera-view:$camerax_version"
+
+    // Google AI (Gemini) Client for Object Detection
+    implementation 'com.google.ai.client.generativeai:generativeai:0.9.0'
 }

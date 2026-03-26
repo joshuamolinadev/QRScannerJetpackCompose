@@ -3,21 +3,21 @@ package com.example.qrscannerjetpackcompose.ui
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.Button
+import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
@@ -32,6 +32,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.qrscannerjetpackcompose.viewmodel.CameraViewModel
+import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
@@ -41,7 +42,6 @@ fun CameraScreen(
 ) {
     val context = LocalContext.current
     
-    // Check initial permission state
     val initialPermission = ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.CAMERA
@@ -49,8 +49,8 @@ fun CameraScreen(
     
     val hasCameraPermission by cameraViewModel.isPermissionGranted.collectAsState()
     val scannedQrCode by cameraViewModel.scannedQrCode.collectAsState()
+    val isAnalyzing by cameraViewModel.isAnalyzing.collectAsState()
 
-    // Setup permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
@@ -58,7 +58,6 @@ fun CameraScreen(
         }
     )
 
-    // Trigger permission request or update ViewModel if already granted
     LaunchedEffect(Unit) {
         if (initialPermission) {
             cameraViewModel.onPermissionResult(true)
@@ -68,16 +67,26 @@ fun CameraScreen(
     }
 
     if (hasCameraPermission) {
+        val imageCapture = remember { ImageCapture.Builder().build() }
+        
         Column(modifier = Modifier.fillMaxSize()) {
-            // Camera Preview takes up 3/4 of the screen (weight 0.75f)
-            Box(modifier = Modifier.weight(0.75f)) {
-                CameraPreview(modifier = Modifier.fillMaxSize())
+            Box(modifier = Modifier.weight(0.7f)) {
+                CameraPreview(
+                    modifier = Modifier.fillMaxSize(),
+                    imageCapture = imageCapture
+                )
+                
+                // Overlay a progress indicator when analyzing
+                if (isAnalyzing) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colors.primary)
+                    }
+                }
             }
 
-            // Bottom Information Area takes up 1/4 of the screen (weight 0.25f)
             Surface(
                 modifier = Modifier
-                    .weight(0.25f)
+                    .weight(0.3f)
                     .fillMaxWidth(),
                 elevation = 8.dp,
                 color = MaterialTheme.colors.surface
@@ -85,20 +94,33 @@ fun CameraScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceEvenly
                 ) {
                     Text(
-                        text = "Scan Result",
+                        text = "Identify Objects with Google AI",
                         style = MaterialTheme.typography.h6,
                         color = MaterialTheme.colors.primary
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    
                     Text(
-                        text = scannedQrCode ?: "Point your camera at a QR code",
+                        text = scannedQrCode ?: "Point your camera and capture",
                         style = MaterialTheme.typography.body1,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
                     )
+                    
+                    Button(
+                        onClick = {
+                            captureImage(context, imageCapture) { bitmap ->
+                                cameraViewModel.analyzeImage(bitmap)
+                            }
+                        },
+                        enabled = !isAnalyzing
+                    ) {
+                        Text(if (isAnalyzing) "Analyzing..." else "Capture & Identify")
+                    }
                 }
             }
         }
@@ -112,17 +134,21 @@ fun CameraScreen(
 }
 
 @Composable
-fun CameraPreview(modifier: Modifier = Modifier) {
+fun CameraPreview(
+    modifier: Modifier = Modifier,
+    imageCapture: ImageCapture
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
     val previewView = remember { PreviewView(context) }
     
-    LaunchedEffect(previewView) {
+    LaunchedEffect(previewView, imageCapture) {
         val cameraProvider = context.getCameraProvider()
         val preview = Preview.Builder().build().also {
             it.setSurfaceProvider(previewView.surfaceProvider)
         }
+
         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
         
         try {
@@ -130,7 +156,8 @@ fun CameraPreview(modifier: Modifier = Modifier) {
             cameraProvider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
-                preview
+                preview,
+                imageCapture
             )
         } catch (e: Exception) {
             Log.e("CameraPreview", "Use case binding failed", e)
@@ -141,6 +168,36 @@ fun CameraPreview(modifier: Modifier = Modifier) {
         factory = { previewView },
         modifier = modifier
     )
+}
+
+private fun captureImage(
+    context: Context,
+    imageCapture: ImageCapture,
+    onImageCaptured: (Bitmap) -> Unit
+) {
+    val executor: Executor = ContextCompat.getMainExecutor(context)
+    imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
+        override fun onCaptureSuccess(image: ImageProxy) {
+            val rotationDegrees = image.imageInfo.rotationDegrees
+            val bitmap = image.toBitmap()
+            
+            // Rotate the bitmap if necessary
+            val rotatedBitmap = if (rotationDegrees != 0) {
+                val matrix = Matrix()
+                matrix.postRotate(rotationDegrees.toFloat())
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                bitmap
+            }
+            
+            image.close()
+            onImageCaptured(rotatedBitmap)
+        }
+
+        override fun onError(exception: ImageCaptureException) {
+            Log.e("CameraScreen", "Image capture failed", exception)
+        }
+    })
 }
 
 suspend fun Context.getCameraProvider(): ProcessCameraProvider = suspendCoroutine { continuation ->
