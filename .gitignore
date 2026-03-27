@@ -12,4 +12,21 @@
 /captures
 .externalNativeBuild
 .cxx
+
+# Secrets and local configuration
 local.properties
+secrets.properties
+
+# Mac OS
+.DS_Store
+
+# User-specific configurations
+*.iml
+.idea/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (if applicable)
+google-services.json

@@ -1,21 +1,27 @@
 package com.example.qrscannerjetpackcompose.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.util.Log
+import android.view.MotionEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
@@ -24,6 +30,7 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
@@ -69,25 +76,51 @@ fun CameraScreen(
     if (hasCameraPermission) {
         val imageCapture = remember { ImageCapture.Builder().build() }
         
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(0.7f)) {
-                CameraPreview(
-                    modifier = Modifier.fillMaxSize(),
-                    imageCapture = imageCapture
-                )
-                
-                // Overlay a progress indicator when analyzing
-                if (isAnalyzing) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = MaterialTheme.colors.primary)
-                    }
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Camera Preview takes up the full screen
+            CameraPreview(
+                modifier = Modifier.fillMaxSize(),
+                imageCapture = imageCapture
+            )
+            
+            // Overlay a progress indicator when analyzing
+            if (isAnalyzing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colors.primary)
                 }
             }
 
+            // Capture Button at the bottom center of the camera preview
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 180.dp), // Push up to make room for the bottom panel
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Button(
+                    onClick = {
+                        captureImage(context, imageCapture) { bitmap ->
+                            cameraViewModel.analyzeImage(bitmap)
+                        }
+                    },
+                    enabled = !isAnalyzing,
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(if (isAnalyzing) "Analyzing..." else "Capture & Identify")
+                }
+            }
+
+            // Results Panel pinned to the bottom
             Surface(
                 modifier = Modifier
-                    .weight(0.3f)
-                    .fillMaxWidth(),
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(180.dp), // Fixed height for the results panel
                 elevation = 8.dp,
                 color = MaterialTheme.colors.surface
             ) {
@@ -95,31 +128,29 @@ fun CameraScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceEvenly
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "Identify Objects with Google AI",
                         style = MaterialTheme.typography.h6,
-                        color = MaterialTheme.colors.primary
+                        color = MaterialTheme.colors.primary,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
                     
-                    Text(
-                        text = scannedQrCode ?: "Point your camera and capture",
-                        style = MaterialTheme.typography.body1,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                    
-                    Button(
-                        onClick = {
-                            captureImage(context, imageCapture) { bitmap ->
-                                cameraViewModel.analyzeImage(bitmap)
-                            }
-                        },
-                        enabled = !isAnalyzing
+                    // The description text inside a scrollable column in case the AI returns a long result
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Text(if (isAnalyzing) "Analyzing..." else "Capture & Identify")
+                        Text(
+                            text = scannedQrCode ?: "Point your camera and capture\n(Tap the screen to focus)",
+                            style = MaterialTheme.typography.body1,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                     }
                 }
             }
@@ -133,6 +164,7 @@ fun CameraScreen(
     }
 }
 
+@SuppressLint("ClickableViewAccessibility")
 @Composable
 fun CameraPreview(
     modifier: Modifier = Modifier,
@@ -153,12 +185,34 @@ fun CameraPreview(
         
         try {
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
+            val camera = cameraProvider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
                 imageCapture
             )
+
+            // Setup Tap-to-Focus
+            val cameraControl = camera.cameraControl
+            previewView.setOnTouchListener { view, event ->
+                if (event.action == MotionEvent.ACTION_UP) {
+                    val factory = previewView.meteringPointFactory
+                    val point = factory.createPoint(event.x, event.y)
+                    
+                    // Create a FocusMeteringAction and specify it should focus on the point
+                    val action = FocusMeteringAction.Builder(point).build()
+                    
+                    // Execute auto-focus on the tapped area
+                    cameraControl.startFocusAndMetering(action)
+                    
+                    // Perform click for accessibility
+                    view.performClick()
+                    true
+                } else {
+                    true // Consume touch event so we get ACTION_UP
+                }
+            }
+
         } catch (e: Exception) {
             Log.e("CameraPreview", "Use case binding failed", e)
         }
