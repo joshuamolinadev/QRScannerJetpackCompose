@@ -45,11 +45,17 @@ class CameraViewModel : ViewModel() {
             _scannedQrCode.value = "Analyzing image with Google AI..."
             
             try {
-                // Generate content using the image and a text prompt
+                // Generate content using the image and a text prompt.
+                // Added instruction to automatically translate any detected text/labels into English.
                 val response = generativeModel.generateContent(
                     content {
                         image(bitmap)
-                        text("Accurately identify the main object in this image. Provide a brief, concise, and clear description.")
+                        text(
+                            "Accurately identify the main object in this image. " +
+                            "If there is any foreign text or if the common name for the object is in another language, " +
+                            "automatically translate and provide your entire response in English. " +
+                            "Keep the description brief, concise, and clear."
+                        )
                     }
                 )
                 
